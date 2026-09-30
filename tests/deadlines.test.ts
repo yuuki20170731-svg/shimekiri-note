@@ -34,9 +34,29 @@ test("複数の日付と年なし日付を、推測で確定しない", () => {
     "説明会 2026年9月30日\n締切 10月1日 23:59\n明日までに確認",
   );
   assert.equal(value.dates.length, 2);
-  assert.equal(value.dates[1].date, null);
-  assert.equal(value.dates[1].time, "23:59");
+  assert.equal(value.dates.find((date) => date.isDeadline)?.date, null);
+  assert.equal(value.dates.find((date) => date.isDeadline)?.time, "23:59");
   assert.ok(value.notes.some((note) => note.includes("相対")));
+});
+
+test("案内に送信日と締切日があっても、締切を優先する", () => {
+  const value = extractMail(
+    "送信日 2026/09/28\n株式会社青葉 採用担当\nESの提出期限は 2026年10月5日(月) 23時59分までです。\n提出先 https://example.com/apply",
+  );
+  assert.equal(value.dates[0].date, "2026-10-05");
+  assert.equal(value.dates[0].time, "23:59");
+  assert.equal(value.dates[0].isDeadline, true);
+  assert.equal(value.company, "株式会社青葉");
+});
+
+test("令和・日付の後に年・午前午後の表記を読む", () => {
+  const value = extractMail(
+    "受付期限：令和8年10月5日 午後11:59まで\n面接予約：10月7日, 2026年 午前9時まで",
+  );
+  assert.equal(value.dates[0].date, "2026-10-05");
+  assert.equal(value.dates[0].time, "23:59");
+  assert.equal(value.dates[1].date, "2026-10-07");
+  assert.equal(value.dates[1].time, "09:00");
 });
 test("スマホでコピーした案内の点区切り日付と翌行の午後時刻を候補にする", () => {
   const value = extractMail(

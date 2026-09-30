@@ -55,6 +55,12 @@ import {
 } from "@/lib/deadlines";
 import { appError, getSupabase } from "@/lib/supabase";
 import { currentSubscription, pushSupported, subscribePush } from "@/lib/push";
+import { gmailList, gmailMessageText, type GmailPreview } from "@/lib/gmail";
+import {
+  loadGoogleIdentity,
+  requestGmailAccess,
+  revokeGmailAccess,
+} from "@/lib/google-identity";
 
 type View = "list" | "add" | "settings" | "auth";
 const blank: DeadlineInput = {
@@ -414,7 +420,7 @@ export default function DeadlineApp() {
         </Button>
       </header>
       <main id="main" className="workspace">
-        {!user && !checking && (
+        {!user && !checking && (view === "list" || view === "add") && (
           <div className="demo-notice">
             <span className="status-dot" />
             企業向けデモ{" "}
@@ -572,7 +578,7 @@ export default function DeadlineApp() {
                 {!user && (
                   <button className="text-link" onClick={() => setView("auth")}>
                     <LogIn aria-hidden="true" className="inline-icon" />
-                    既存アカウントでログイン
+                    ログイン・新規登録
                   </button>
                 )}
               </div>
@@ -761,6 +767,7 @@ export default function DeadlineApp() {
       </Sheet>
       <footer className="app-footer">
         締切ノート <span>確認してから保存。あなたのペースで、一歩ずつ。</span>
+        <a href="/privacy.html">プライバシー</a>
       </footer>
       <Toaster position="bottom-center" richColors />
     </>
@@ -805,7 +812,13 @@ function DeadlineForm({
   );
 
   function candidateInput(data: MailCandidates): DeadlineInput {
-    const date = data.dates.length === 1 ? data.dates[0] : null;
+    const deadlines = data.dates.filter((item) => item.isDeadline);
+    const date =
+      deadlines.length === 1
+        ? deadlines[0]
+        : data.dates.length === 1
+          ? data.dates[0]
+          : null;
     return {
       ...blank,
       company: data.company,
@@ -931,6 +944,14 @@ function DeadlineForm({
               ? "本文はこの端末で読み取り、保管・外部送信しません。確認した項目だけを保存します。"
               : "本文はこの端末だけで読み取り、保存・送信しません。サンプルの変更は再読み込みで消えます。"}
           </p>
+          {cloud && (
+            <GmailPicker
+              onSelect={(value) => {
+                setMail(value);
+                parse(value);
+              }}
+            />
+          )}
           {errors.mail && (
             <p className="error-text" role="alert">
               {errors.mail}
@@ -995,13 +1016,22 @@ function DeadlineForm({
             ))}
           {candidates.dates.length > 1 && (
             <>
-              <p>どの締切を登録しますか？</p>
+              <p>
+                {candidates.dates.filter((date) => date.isDeadline).length === 1
+                  ? "締切らしい日付を入力欄に入れました。違う場合は候補を選んでください。"
+                  : "どの締切を登録しますか？"}
+              </p>
               <div className="candidate-list">
                 {candidates.dates.map((date, i) => (
                   <Button
                     key={i}
                     type="button"
                     variant="outline"
+                    aria-pressed={
+                      !!date.date &&
+                      input.due_date === date.date &&
+                      input.due_time === date.time
+                    }
                     onClick={() => {
                       setInput((current) => ({
                         ...current,
@@ -1010,7 +1040,12 @@ function DeadlineForm({
                       }));
                     }}
                   >
+                    {date.isDeadline ? "締切らしい日付: " : "その他の日付: "}
                     {date.label}
+                    {date.date &&
+                      input.due_date === date.date &&
+                      input.due_time === date.time &&
+                      "（選択中）"}
                   </Button>
                 ))}
               </div>
@@ -1025,9 +1060,11 @@ function DeadlineForm({
                     type="button"
                     variant="outline"
                     key={url}
+                    aria-pressed={input.submission_url === url}
                     onClick={() => change("submission_url", url)}
                   >
                     {i + 1}. {new URL(url).hostname}
+                    {input.submission_url === url && "（選択中）"}
                   </Button>
                 ))}
               </div>
@@ -1042,9 +1079,11 @@ function DeadlineForm({
                     type="button"
                     variant="outline"
                     key={task}
+                    aria-pressed={input.task === task}
                     onClick={() => change("task", task)}
                   >
                     {task}
+                    {input.task === task && "（選択中）"}
                   </Button>
                 ))}
               </div>
@@ -1097,6 +1136,174 @@ function DeadlineForm({
   );
 }
 
+function GmailPicker({ onSelect }: { onSelect: (text: string) => void }) {
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  const [ready, setReady] = useState(false);
+  const [token, setToken] = useState("");
+  const [query, setQuery] = useState("in:inbox newer_than:6m");
+  const [messages, setMessages] = useState<GmailPreview[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!clientId) return;
+    let mounted = true;
+    void loadGoogleIdentity()
+      .then(() => {
+        if (mounted) setReady(true);
+      })
+      .catch(() => {
+        if (mounted)
+          setError(
+            "Googleの接続画面を読み込めませんでした。本文の貼り付けは使えます。",
+          );
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [clientId]);
+
+  async function search(accessToken = token) {
+    setError("");
+    setLoading(true);
+    try {
+      setMessages(await gmailList(accessToken, query.trim()));
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Gmailを読み込めませんでした。",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function connect() {
+    if (!clientId) return;
+    setError("");
+    try {
+      requestGmailAccess(clientId, (accessToken) => {
+        if (!accessToken) {
+          setError(
+            "Gmailへのアクセスを許可できませんでした。Googleの画面を確認してください。",
+          );
+          return;
+        }
+        setToken(accessToken);
+        void search(accessToken);
+      });
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Gmailへ接続できませんでした。",
+      );
+    }
+  }
+
+  async function select(message: GmailPreview) {
+    setError("");
+    setLoading(true);
+    try {
+      onSelect(await gmailMessageText(token, message.id));
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "メール本文を読み込めませんでした。",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!clientId)
+    return (
+      <p className="helper">
+        Gmail一覧からの取り込みは接続設定中です。本文をコピーして貼り付けられます。
+      </p>
+    );
+  return (
+    <section className="gmail-picker" aria-label="Gmailから選ぶ">
+      <h2>Gmailから選ぶ</h2>
+      <p className="helper">
+        接続時にGoogleで読み取りを許可します。検索結果の件名・差出人を表示し、選んだメールの本文だけを端末内で解析します。本文と接続情報は締切ノートに保存しません。
+      </p>
+      <p className="helper">
+        Gmail連携は現在テスト中です。Googleに登録したテスト利用者だけが接続できます。
+      </p>
+      {!token ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!ready || loading}
+          onClick={connect}
+        >
+          Gmailに接続して選ぶ
+        </Button>
+      ) : (
+        <>
+          <div className="gmail-search">
+            <label htmlFor="gmail-query">Gmailの検索</label>
+            <input
+              id="gmail-query"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="会社名や締切などで検索"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading}
+              onClick={() => void search()}
+            >
+              検索
+            </Button>
+          </div>
+          {loading && <p role="status">Gmailを読み込んでいます…</p>}
+          {!loading && messages.length === 0 && (
+            <p className="helper">
+              メールが見つかりません。検索語や期間を変えてください。
+            </p>
+          )}
+          <div className="gmail-message-list">
+            {messages.map((message) => (
+              <button
+                type="button"
+                className="gmail-message"
+                key={message.id}
+                disabled={loading}
+                onClick={() => void select(message)}
+              >
+                <strong>{message.subject}</strong>
+                <span>{message.from}</span>
+                <small>{message.snippet}</small>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="text-link"
+            onClick={() => {
+              revokeGmailAccess(token);
+              setToken("");
+              setMessages([]);
+            }}
+          >
+            Gmailの接続を解除
+          </button>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="error-text">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function AuthForm({
   configured,
   recovery,
@@ -1106,9 +1313,10 @@ function AuthForm({
   recovery: boolean;
   onComplete: () => void;
 }) {
-  const [mode, setMode] = useState<"signin" | "reset">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -1119,6 +1327,10 @@ function AuthForm({
     const client = getSupabase();
     if (!client) {
       setError("オンライン機能は準備中です。サンプル体験は使えます。");
+      return;
+    }
+    if (mode === "signup" && password !== confirmation) {
+      setError("確認用パスワードが一致しません。");
       return;
     }
     setBusy(true);
@@ -1137,6 +1349,18 @@ function AuthForm({
         if (failure) throw failure;
         setPassword("");
         onComplete();
+      } else if (mode === "signup") {
+        const { error: failure } = await client.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (failure) throw failure;
+        setPassword("");
+        setConfirmation("");
+        setMessage(
+          "確認メールを送信しました。メール内のリンクを開いてからログインしてください。迷惑メールも確認してください。",
+        );
       } else {
         const { error: failure } = await client.auth.resetPasswordForEmail(
           email,
@@ -1160,20 +1384,19 @@ function AuthForm({
           ? "新しいパスワードを設定"
           : mode === "reset"
             ? "パスワードを再設定"
-            : "ログイン"}
+            : mode === "signup"
+              ? "新規登録"
+              : "ログイン"}
       </h1>
       <p className="helper">
         {recovery
           ? "新しいパスワードを入力してください。"
           : mode === "signin"
             ? "登録時に決めた締切ノートのパスワードを入力してください。スマホとPCで同じ締切情報を使えます。"
-            : "登録済みのメールアドレスに再設定の案内を送ります。"}
+            : mode === "signup"
+              ? "メールアドレスとパスワードで登録します。確認メールのリンクを開くと、スマホとPCで同じ締切情報を使えます。"
+              : "登録済みのメールアドレスに再設定の案内を送ります。"}
       </p>
-      {!recovery && (
-        <div className="candidate-note">
-          この公開デモでは新規登録を受け付けていません。架空データの操作はログインなしで試せます。
-        </div>
-      )}
       {!configured && (
         <div className="candidate-note">
           オンライン機能は準備中です。現在はサンプルで操作を試せます。
@@ -1206,17 +1429,36 @@ function AuthForm({
         {(recovery || mode !== "reset") && (
           <>
             <label htmlFor="password">
-              パスワード{recovery ? "（8文字以上）" : ""}
+              パスワード{recovery || mode === "signup" ? "（8文字以上）" : ""}
             </label>
             <input
               id="password"
               type="password"
-              autoComplete={recovery ? "new-password" : "current-password"}
+              autoComplete={
+                recovery || mode === "signup"
+                  ? "new-password"
+                  : "current-password"
+              }
               required
-              minLength={recovery ? 8 : undefined}
+              minLength={recovery || mode === "signup" ? 8 : undefined}
               maxLength={72}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+            />
+          </>
+        )}
+        {mode === "signup" && !recovery && (
+          <>
+            <label htmlFor="password-confirmation">パスワード（確認用）</label>
+            <input
+              id="password-confirmation"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={8}
+              maxLength={72}
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
             />
           </>
         )}
@@ -1228,7 +1470,9 @@ function AuthForm({
                 ? "パスワードを更新"
                 : mode === "reset"
                   ? "再設定メールを送る"
-                  : "ログイン"}
+                  : mode === "signup"
+                    ? "確認メールを送って登録"
+                    : "ログイン"}
           </Button>
         </div>
       </form>
@@ -1247,15 +1491,39 @@ function AuthForm({
             </button>
           )}
           {mode === "signin" && (
+            <>
+              <button
+                className="text-link"
+                onClick={() => {
+                  setMode("signup");
+                  setError("");
+                  setMessage("");
+                }}
+              >
+                新規登録する
+              </button>
+              <button
+                className="text-link"
+                onClick={() => {
+                  setMode("reset");
+                  setError("");
+                  setMessage("");
+                }}
+              >
+                パスワードを忘れた場合
+              </button>
+            </>
+          )}
+          {mode === "signup" && (
             <button
               className="text-link"
               onClick={() => {
-                setMode("reset");
+                setMode("signin");
                 setError("");
                 setMessage("");
               }}
             >
-              パスワードを忘れた場合
+              ログインへ戻る
             </button>
           )}
         </div>
@@ -1407,7 +1675,7 @@ function Settings({
               ? "ログインして通知を設定しましょう。"
               : "オンラインの保存・配信設定は準備中です。現在はサンプル体験が使えます。"}
           </p>
-          <Button onClick={onAuth}>既存アカウントでログイン</Button>
+          <Button onClick={onAuth}>ログイン・新規登録</Button>
         </>
       ) : loading ? (
         <div className="loading-panel" role="status">

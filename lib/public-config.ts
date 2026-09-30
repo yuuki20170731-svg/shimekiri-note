@@ -5,6 +5,7 @@ export function publicConfig(values: Record<string, string>) {
   const url = values.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = values.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
   const vapid = values.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+  const googleClientId = values.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
   if (url) {
     const parsed = new URL(url);
     if (
@@ -46,9 +47,18 @@ export function publicConfig(values: Record<string, string>) {
       );
     }
   }
+  if (
+    googleClientId &&
+    !/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(googleClientId)
+  ) {
+    throw new Error(
+      "Google Client IDにはWebアプリ用の公開IDだけを指定してください。",
+    );
+  }
   return {
     NEXT_PUBLIC_SUPABASE_URL: url,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: vapid,
+    NEXT_PUBLIC_GOOGLE_CLIENT_ID: googleClientId,
   };
 }

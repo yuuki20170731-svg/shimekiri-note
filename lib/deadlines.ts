@@ -15,6 +15,7 @@ export type DateCandidate = {
   label: string;
   date: string | null;
   time: string | null;
+  isDeadline: boolean;
 };
 export type MailCandidates = {
   company: string;
@@ -73,14 +74,24 @@ export function extractMail(raw: string): MailCandidates {
   const text = raw
     .normalize("NFKC")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(
+      /(\d{1,2}\s*(?:月|[./-])\s*\d{1,2}\s*日?)[ \t,]+(\d{4})\s*年/g,
+      "$2年$1",
+    )
     .replace(/\r\n?/g, "\n");
   const dates: DateCandidate[] = [];
-  // ponytail: 日本語の一般的な表記を候補化。対応外の文面は必ず手入力で完了できる。
+  // 日付だけを手掛かりに意味を作らない。周辺に締切語があれば優先候補にする。
   const datePattern =
-    /(?:(\d{4})[ \t]*(?:年|[./-])[ \t]*)?(\d{1,2})[ \t]*(?:月|[./-])[ \t]*(\d{1,2})[ \t]*日?/g;
+    /(?:(\d{4})[ \t]*(?:年|[./-])[ \t]*|令和[ \t]*(\d{1,2})[ \t]*年[ \t]*)?(\d{1,2})[ \t]*(?:月|[./-])[ \t]*(\d{1,2})[ \t]*日?/g;
   for (const match of text.matchAll(datePattern)) {
     // 年のない小数（10.5など）を日付の候補にしない。
-    if (!match[1] && match[0].includes(".")) continue;
+    if (!match[1] && !match[2] && match[0].includes(".")) continue;
+    const year =
+      match[1] ?? (match[2] ? String(Number(match[2]) + 2018) : undefined);
+    const month = match[3];
+    const day = match[4];
+    if (!month || !day || Number(month) > 12 || Number(day) > 31) continue;
     const end = (match.index ?? 0) + match[0].length;
     const nearby = text
       .slice(end, end + 70)
@@ -92,32 +103,45 @@ export function extractMail(raw: string): MailCandidates {
     );
     const timeArea = nextDate >= 0 ? nearby.slice(0, nextDate) : nearby;
     const timeMatch = timeArea.match(
-      /(?:^|\D)(午前|午後)?\s*(\d{1,2})\s*(?::|時)\s*(\d{2})\s*分?/,
+      /(?:^|\D)(午前|午後|AM|PM)?\s*(\d{1,2})\s*(?::|時)\s*(\d{1,2})\s*分?/i,
     );
     const hourOnly = timeMatch
       ? null
-      : timeArea.match(/(?:^|\D)(午前|午後)?\s*(\d{1,2})\s*時(?:\D|$)/);
+      : timeArea.match(/(?:^|\D)(午前|午後|AM|PM)?\s*(\d{1,2})\s*時(?:\D|$)/i);
     const foundTime = timeMatch ?? hourOnly;
     let time: string | null = null;
     if (foundTime) {
       const period = foundTime[1];
       let hour = Number(foundTime[2]);
-      if (period === "午前" && hour === 12) hour = 0;
-      if (period === "午後" && hour < 12) hour += 12;
-      time = `${String(hour).padStart(2, "0")}:${timeMatch?.[3] ?? "00"}`;
+      if (/^(午前|AM)$/i.test(period ?? "") && hour === 12) hour = 0;
+      if (/^(午後|PM)$/i.test(period ?? "") && hour < 12) hour += 12;
+      time = `${String(hour).padStart(2, "0")}:${String(timeMatch?.[3] ?? "00").padStart(2, "0")}`;
     }
-    const date = match[1]
-      ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`
+    const date = year
+      ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
       : null;
     const lineStart = text.lastIndexOf("\n", match.index ?? 0) + 1;
-    const context = text.slice(lineStart, match.index).trim().slice(-20);
+    const lineEnd = text.indexOf("\n", end);
+    const context = text.slice(lineStart, match.index).trim().slice(-24);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    const previousLine =
+      text
+        .slice(0, lineStart - 1)
+        .split("\n")
+        .at(-1) ?? "";
+    const isDeadline =
+      /締[切め]|期限|提出|応募|エントリー|受付.{0,4}まで|回答.{0,4}まで|予約.{0,4}まで/i.test(
+        `${previousLine.slice(-24)} ${line}`,
+      );
     if (!date || validDate(date))
       dates.push({
         label: `${context ? `${context} ` : ""}${match[0]}${time ? ` ${time}` : ""}${date ? "" : "（年を確認）"}`,
         date,
         time: time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : null,
+        isDeadline,
       });
   }
+  dates.sort((a, b) => Number(b.isDeadline) - Number(a.isDeadline));
   const links = [
     ...new Set(
       (text.match(/https?:\/\/[^\s<>"'「」]+/g) ?? [])
@@ -140,7 +164,7 @@ export function extractMail(raw: string): MailCandidates {
     ...new Set(
       (
         text.match(
-          /エントリーシート|ポートフォリオ|履歴書|職務経歴書|(?:Web|WEB|ウェブ)?適性検査|Webテスト|オンラインテスト|書類提出|動画提出|面接予約|面談予約|ES(?:提出)?/g,
+          /エントリーシート|ポートフォリオ|履歴書|職務経歴書|応募書類|提出書類|課題提出|事前課題|アンケート回答|説明会予約|(?:Web|WEB|ウェブ)?適性検査|Webテスト|オンラインテスト|書類提出|動画提出|面接予約|面談予約|ES(?:提出)?/gi,
         ) ?? []
       ).map((task) =>
         /^(ES|エントリーシート)/.test(task)
@@ -155,9 +179,20 @@ export function extractMail(raw: string): MailCandidates {
     "読み取りは候補です。メールの内容と照らし合わせて確認してください。",
   ];
   if (!company) notes.push("企業名を読み取れませんでした。入力してください。");
-  if (dates.length !== 1 || !dates[0]?.date)
+  if (!dates.some((item) => item.isDeadline && item.date))
     notes.push(
-      "締切の年月日を選択・入力してください。複数の日付や年のない日付は自動で確定しません。",
+      "締切と明記された日付を見つけられませんでした。候補を確認してください。",
+    );
+  const deadlineDates = dates.filter((item) => item.isDeadline);
+  const selectedDate =
+    deadlineDates.length === 1
+      ? deadlineDates[0]
+      : dates.length === 1
+        ? dates[0]
+        : null;
+  if (!selectedDate?.date)
+    notes.push(
+      "締切の年月日を選択・入力してください。締切候補が複数ある場合や年のない日付は自動で選びません。",
     );
   if (/明日|明後日|来週|本日|翌日/.test(text))
     notes.push(

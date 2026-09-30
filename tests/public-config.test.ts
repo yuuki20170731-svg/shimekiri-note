@@ -52,6 +52,7 @@ test("保存先URLを確認し、無関係な環境変数は公開しない", ()
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+      "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
     ].sort(),
   );
   assert.ok(!JSON.stringify(config).includes("unit-secret"));

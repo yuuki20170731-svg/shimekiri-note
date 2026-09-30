@@ -34,6 +34,10 @@ export function appError(error: unknown): string {
     return "メールアドレスかパスワードを確認してください。";
   if (code === "email_not_confirmed")
     return "確認メールを開き、メールアドレスを確認してください。";
+  if (code === "signup_disabled")
+    return "現在は新規登録を受け付けていません。時間をおいてもう一度お試しください。";
+  if (code === "weak_password")
+    return "より長く、推測されにくいパスワードにしてください。";
   if (
     code === "over_email_send_rate_limit" ||
     code === "over_request_rate_limit"
