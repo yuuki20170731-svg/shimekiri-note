@@ -1314,7 +1314,7 @@ function DeadlineForm({
             通知は3日前と前日の午前9時（日本時間）。過ぎた通知時刻の分は送らず、次の予定から知らせます。
             {cloud && (
               <p>
-                通知の実際の到着は確認中です。大切な締切は元の案内でも確認してください。
+                テスト通知はAndroidで受信を確認しました。大切な締切は元の案内でも確認してください。
               </p>
             )}
             {!cloud && (
@@ -1869,7 +1869,7 @@ function Settings({
     <section className="form-panel settings-panel">
       <h1 className="form-title">通知とアカウント</h1>
       <p className="helper">
-        締切の3日前と前日、午前9時（日本時間）に知らせる設計です。テストメールの到着は確認済みです。迷惑メールに入る場合があります。プッシュ通知の到着は確認中です。
+        締切の3日前と前日、午前9時（日本時間）に知らせる設計です。テストメールとAndroidのテストプッシュの到着を確認しました。メールは迷惑メールに入る場合があります。
       </p>
       {error && (
         <div role="alert" className="error-box">
