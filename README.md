@@ -9,7 +9,7 @@
 ## 主な機能
 
 - メール本文を端末内のルールで解析し、企業名、提出物、締切日時、提出先リンクの候補を読み取る
-- 日付候補を端末内で判定する。Jevによる追加判定の試験実装は、無料の公開版では無効
+- 日付が複数ある・年が不明な場合だけ、利用者の操作でCloudflare Workers AIに短い候補文を送り、締切らしい候補を提案する
 - Gmailの検索結果からメールを選んで取り込む（Googleの承認済みテスト利用者のみ）
 - 候補を確認・修正し、足りない項目は手入力する
 - 締切が近い順に確認し、詳細の編集や提出済みへの変更を行う
@@ -20,7 +20,7 @@
 
 ## 技術
 
-React、TypeScript、Vite、Supabase Auth/PostgreSQL、Supabase Edge Functions/Cron、Brevo、Web Push、Gmail API、Cloudflare Pages。メール本文はブラウザ内で候補化し、データベースには確認後の締切情報のみ保存します。Gmail連携はGoogleのテストモード中で、登録済みテスト利用者だけが利用できます。
+React、TypeScript、Vite、Supabase Auth/PostgreSQL、Supabase Edge Functions/Cron、Brevo、Web Push、Gmail API、Cloudflare Pages/Workers AI。メール本文はブラウザ内で候補化し、データベースには確認後の締切情報のみ保存します。AIへの送信はログイン後の任意操作で、候補の短い文と日付だけです。Gmail連携はGoogleのテストモード中で、登録済みテスト利用者だけが利用できます。
 
 ## ローカル起動
 
@@ -40,8 +40,8 @@ pnpm lint
 pnpm build
 ```
 
-Cloudflare Pagesの無料公開版へは、ビルド後の`dist`から`index.html`、`assets/`、`sw.js`、公開用SVG、`privacy.html`だけをアップロードします。`dist/.openai/`、`_worker.js`、`_routes.json`は配信対象に含めません。試験実装したJevはTypeSafeの第三者モデルで、Cloudflare AI Gatewayの前払いクレジットが必要でした。無料公開版では`VITE_JEV_ENABLED`を設定せず、AIバインディングを使用しません。再有効化する場合は、料金・プライバシーを確認し、`VITE_JEV_ENABLED=true`と本番のAIバインディング・Supabase公開用設定を揃える必要があります。管理用キーをブラウザに設定しないでください。
+Cloudflare Pagesへ公開するときは`VITE_AI_REVIEW_ENABLED=true`でビルドし、`dist`の静的ファイルと`_worker.js`、`_routes.json`をアップロードします。`dist/.openai/`などの開発用設定は除外します。Pagesの本番環境にWorkers AIバインディング`AI`、`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`を設定します。AI APIはログインを検証し、候補IDだけを返します。管理用キーをブラウザに設定しないでください。Workers AIは無料枠の上限に達すると、その日の追加判定が失敗するため、手入力の導線を残しています。
 
 ## 検証状況
 
-41件の自動テスト、型チェック、lint、ビルドを通過。PCでの実アカウントによる保存・編集と、公開デモでの架空メール候補表示を確認しました。Gmail一覧・検索が動作し、Androidで利用者が選んだ実メールから企業名・締切日・時刻を正しく候補化できました。Jevへの試験リクエストはCloudflareの「AI Gatewayクレジット不足（2021）」で拒否されたため、無料版では無効にしました。AndroidとPCの同期、Androidへのプッシュ通知、締切メールの実着信は未確認です。通知の到着を保証する表示にはしていません。
+43件の自動テスト、型チェック、lint、ビルドを通過。PCでの実アカウントによる保存・編集と、公開デモでの架空メール候補表示を確認しました。公開サイトの実アカウントで、送信日・説明会・提出締切の3候補からAIが提出締切を選ぶこと、年なしの締切では年を推測しないことを架空メールで確認しました。Gmail一覧・検索が動作し、Androidで利用者が選んだ実メールから企業名・締切日・時刻を正しく候補化できました。AndroidとPCの同期、Androidへのプッシュ通知、締切メールの実着信は未確認です。通知の到着を保証する表示にはしていません。

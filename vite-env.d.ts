@@ -1,3 +1,3 @@
 interface ImportMetaEnv {
-  readonly VITE_JEV_ENABLED?: string;
+  readonly VITE_AI_REVIEW_ENABLED?: string;
 }
