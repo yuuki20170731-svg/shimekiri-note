@@ -369,7 +369,7 @@
             <span class="number">01</span>
             <h3>候補を見て決める</h3>
             <p>
-              案内メールから企業名、提出物、日付、URLの候補を抽出。複数の日付があれば選択を促し、推測で締切を決めません。
+              案内メールから企業名、提出物、日付、URLの候補を抽出。複数の日付があればAIで候補を確認でき、利用者が元の案内と照らして決めます。
             </p>
           </article>
           <article>
@@ -398,14 +398,14 @@
         </div>
         <div class="evidence">
           <div class="fact">
-            <strong>41件の自動テスト</strong>
+            <strong>43件の自動テスト</strong>
             <p>
               メールの表記揺れ、利用者ごとのデータ分離、通知予約の変更・停止を確認しました。Androidでは、選んだ実メールから企業名・締切日・時刻が正しく候補化されることを利用者が確認しています。
             </p>
             <div class="tech" aria-label="使用技術">
               <span>React</span><span>TypeScript</span><span>Vite</span
               ><span>Supabase</span><span>Gmail API</span
-              ><span>Cloudflare Pages</span>
+              ><span>Cloudflare Pages / Workers AI</span>
             </div>
           </div>
           <div class="fact">
