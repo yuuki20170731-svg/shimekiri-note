@@ -482,7 +482,7 @@ textarea {
   outline: 3px solid var(--ring);
   outline-offset: 3px;
 }
-.jev-panel {
+.ai-review-panel {
   margin-top: 18px;
   padding: 16px;
   border: 1px solid #adc5b7;
@@ -490,22 +490,22 @@ textarea {
   background: #f3faf5;
   color: #183d2b;
 }
-.jev-panel p {
+.ai-review-panel p {
   margin: 8px 0 12px;
 }
-.jev-panel details {
+.ai-review-panel details {
   margin: 10px 0 14px;
 }
-.jev-panel summary {
+.ai-review-panel summary {
   cursor: pointer;
   font-weight: 700;
 }
-.jev-panel ol {
+.ai-review-panel ol {
   margin: 10px 0;
   padding-left: 22px;
   overflow-wrap: anywhere;
 }
-.jev-panel li + li {
+.ai-review-panel li + li {
   margin-top: 6px;
 }
 .candidate-list {
