@@ -7,7 +7,6 @@ export type GmailPreview = {
   subject: string;
   from: string;
   date: string;
-  snippet: string;
 };
 
 type GmailPart = {
@@ -18,7 +17,6 @@ type GmailPart = {
 };
 type GmailMessage = {
   id: string;
-  snippet?: string;
   payload?: GmailPart;
 };
 
@@ -128,7 +126,6 @@ export async function gmailList(
         subject: mailHeader(message.payload, "subject") || "（件名なし）",
         from: mailHeader(message.payload, "from") || "差出人不明",
         date: mailHeader(message.payload, "date"),
-        snippet: message.snippet ?? "",
       };
     }),
   );
