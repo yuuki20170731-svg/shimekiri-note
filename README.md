@@ -10,7 +10,7 @@
 
 - メール本文を端末内のルールで解析し、企業名、提出物、締切日時、提出先リンクの候補を読み取る
 - 日付が複数ある・年が不明な場合だけ、利用者の操作でCloudflare Workers AIに短い候補文を送り、締切らしい候補を提案する
-- Gmailの検索結果からメールを選んで取り込む（Googleの承認済みテスト利用者のみ）
+- Gmailの検索結果からメールを選んで取り込む（Googleの審査前は警告画面と累計100人の上限あり）
 - 候補を確認・修正し、足りない項目は手入力する
 - 締切が近い順に確認し、詳細の編集や提出済みへの変更を行う
 - メールで新規登録し、Supabaseに締切情報を保存する
@@ -20,7 +20,7 @@
 
 ## 技術
 
-React、TypeScript、Vite、Supabase Auth/PostgreSQL、Supabase Edge Functions/Cron、Brevo、Web Push、Gmail API、Cloudflare Pages/Workers AI。メール本文はブラウザ内で候補化し、データベースには確認後の締切情報のみ保存します。AIへの送信はログイン後の任意操作で、候補の短い文と日付だけです。Gmail連携はGoogleのテストモード中で、登録済みテスト利用者だけが利用できます。
+React、TypeScript、Vite、Supabase Auth/PostgreSQL、Supabase Edge Functions/Cron、Brevo、Web Push、Gmail API、Cloudflare Pages/Workers AI。メール本文はブラウザ内で候補化し、データベースには確認後の締切情報のみ保存します。AIへの送信はログイン後の任意操作で、候補の短い文と日付だけです。Gmail連携はGoogleの本番環境で事前登録なしに利用できますが、審査前のため警告画面と累計100人の上限があります。
 
 ## ローカル起動
 
