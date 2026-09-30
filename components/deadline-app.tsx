@@ -1278,7 +1278,15 @@ function GmailPicker({ onSelect }: { onSelect: (text: string) => void }) {
               >
                 <strong>{message.subject}</strong>
                 <span>{message.from}</span>
-                <small>{message.snippet}</small>
+                {message.date && !Number.isNaN(Date.parse(message.date)) && (
+                  <small>
+                    {new Intl.DateTimeFormat("ja-JP", {
+                      year: "numeric",
+                      month: "numeric",
+                      day: "numeric",
+                    }).format(new Date(message.date))}
+                  </small>
+                )}
               </button>
             ))}
           </div>
