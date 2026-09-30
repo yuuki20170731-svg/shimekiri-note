@@ -1,0 +1,3 @@
+[functions.reminders]
+# Cronからの呼出しを関数内の高エントロピー共有秘密で検証する。
+verify_jwt = false
