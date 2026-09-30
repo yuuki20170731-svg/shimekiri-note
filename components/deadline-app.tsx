@@ -55,7 +55,12 @@ import {
   type MailCandidates,
 } from "@/lib/deadlines";
 import { appError, getSupabase } from "@/lib/supabase";
-import { currentSubscription, pushSupported, subscribePush } from "@/lib/push";
+import {
+  currentSubscription,
+  pushSupported,
+  subscribePush,
+  waitForPushStep,
+} from "@/lib/push";
 import { gmailList, gmailMessageText, type GmailPreview } from "@/lib/gmail";
 import {
   aiReviewOptions,
@@ -1761,6 +1766,8 @@ function Settings({
   const [saving, setSaving] = useState(false);
   const [localPush, setLocalPush] = useState(false);
   const [error, setError] = useState("");
+  const [pushProgress, setPushProgress] = useState("");
+  const [pushError, setPushError] = useState("");
   useEffect(() => {
     let disposed = false;
     const client = getSupabase();
@@ -1814,15 +1821,15 @@ function Settings({
   async function enablePush() {
     if (!user) return;
     setSaving(true);
-    setError("");
+    setPushError("");
     try {
-      const subscription = await subscribePush();
+      const subscription = await subscribePush(setPushProgress);
       const json = subscription.toJSON();
       if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth)
         throw new Error("通知の登録情報を取得できませんでした。");
-      const { error: failure } = await getSupabase()!
-        .from("push_subscriptions")
-        .upsert(
+      setPushProgress("通知の設定を保存しています…");
+      const { error: failure } = await waitForPushStep(
+        getSupabase()!.from("push_subscriptions").upsert(
           {
             owner_id: user.id,
             endpoint: json.endpoint,
@@ -1830,22 +1837,32 @@ function Settings({
             auth_key: json.keys.auth,
           },
           { onConflict: "owner_id,endpoint" },
-        );
+        ),
+        20_000,
+        "端末の設定を保存できませんでした。通信状態を確認して、もう一度お試しください。",
+      );
       if (failure) throw failure;
-      const { error: settingError } = await getSupabase()!
-        .from("notification_settings")
-        .upsert(
-          { ...settings, push_enabled: true, owner_id: user.id },
-          { onConflict: "owner_id" },
-        );
+      const { error: settingError } = await waitForPushStep(
+        getSupabase()!
+          .from("notification_settings")
+          .upsert(
+            { ...settings, push_enabled: true, owner_id: user.id },
+            { onConflict: "owner_id" },
+          ),
+        20_000,
+        "通知の設定を保存できませんでした。通信状態を確認して、もう一度お試しください。",
+      );
       if (settingError) throw settingError;
       setSettings((current) => ({ ...current, push_enabled: true }));
       setLocalPush(true);
       toast.success("この端末のプッシュを有効にしました。");
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : appError(failure));
+      setPushError(
+        failure instanceof Error ? failure.message : appError(failure),
+      );
     } finally {
       setSaving(false);
+      setPushProgress("");
     }
   }
   return (
@@ -1945,14 +1962,26 @@ function Settings({
             />
           </div>
           {!localPush && (
-            <Button
-              variant="outline"
-              className="push-button"
-              onClick={() => void enablePush()}
-              disabled={saving}
-            >
-              {saving ? "設定中…" : "この端末でプッシュを設定"}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                className="push-button"
+                onClick={() => void enablePush()}
+                disabled={saving}
+              >
+                {saving ? "設定中…" : "この端末でプッシュを設定"}
+              </Button>
+              {pushProgress && (
+                <p className="helper" role="status">
+                  {pushProgress}
+                </p>
+              )}
+              {pushError && (
+                <p className="error-box" role="alert">
+                  {pushError}
+                </p>
+              )}
+            </>
           )}
           <p className="helper">
             {pushSupported()
