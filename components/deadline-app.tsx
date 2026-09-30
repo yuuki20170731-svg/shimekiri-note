@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Bell,
+  CalendarDays,
   Check,
   ClipboardPaste,
   LogIn,
@@ -56,6 +57,7 @@ import {
 import { appError, getSupabase } from "@/lib/supabase";
 import { currentSubscription, pushSupported, subscribePush } from "@/lib/push";
 import { gmailList, gmailMessageText, type GmailPreview } from "@/lib/gmail";
+import { jevOptions, validJevChoice, type JevOption } from "@/lib/jev";
 import {
   loadGoogleIdentity,
   requestGmailAccess,
@@ -63,6 +65,7 @@ import {
 } from "@/lib/google-identity";
 
 type View = "list" | "add" | "settings" | "auth";
+const jevEnabled = import.meta.env.VITE_JEV_ENABLED === "true";
 const blank: DeadlineInput = {
   company: "",
   task: "",
@@ -171,6 +174,7 @@ export default function DeadlineApp() {
   }, [refresh, user]);
 
   const all = sortDeadlines(user ? records : demo);
+  const nextDeadline = all.find((item) => item.status === "pending");
   const detail = all.find((item) => item.id === selected);
   const shown = all.filter((item) => item.status === filter);
 
@@ -432,7 +436,7 @@ export default function DeadlineApp() {
         {user && (
           <p className="notice-line">
             <span className="small-badge">オンラインで保存</span>{" "}
-            同じアカウントでスマホとPCから使えます。
+            登録した締切を保存できます。端末間の同期は確認中です。
           </p>
         )}
         {error && (
@@ -442,19 +446,73 @@ export default function DeadlineApp() {
         )}
         {view === "list" && (
           <>
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">YOUR NEXT STEP</p>
-                <h1>締切を、ひとつの場所に。</h1>
+            <section className="overview-hero" aria-labelledby="overview-title">
+              <div className="overview-copy">
+                <p className="eyebrow">就活の予定を、ひと目で。</p>
+                <h1 id="overview-title">
+                  締切を、忘れない。
+                  <br />
+                  次の一歩を、迷わない。
+                </h1>
                 <p className="subtitle">
-                  何を、いつまでに、どこから。提出に必要な情報をまとめて確認。
+                  案内メールから、企業・提出物・締切・提出先を整理。
+                  確認した情報をひとつの場所に残せます。
                 </p>
+                <div className="overview-actions">
+                  <Button
+                    className="primary-action"
+                    onClick={() => startAdding()}
+                  >
+                    <Plus aria-hidden="true" />
+                    {user ? "メールから締切を追加" : "架空データで試す"}
+                  </Button>
+                  <a className="overview-link" href="/about.html">
+                    この作品について <ArrowUpRight aria-hidden="true" />
+                  </a>
+                </div>
               </div>
-              <Button className="primary-action" onClick={() => startAdding()}>
-                <Plus aria-hidden="true" />
-                {user ? "メールから追加" : "サンプルで試す"}
-              </Button>
-            </div>
+              <div className="next-card" aria-label="次の締切">
+                <div className="next-card-top">
+                  <span className="next-card-icon">
+                    <CalendarDays aria-hidden="true" />
+                  </span>
+                  <span>次の締切</span>
+                  {!user && <span className="next-card-demo">DEMO</span>}
+                </div>
+                {checking || (loading && !all.length) ? (
+                  <p className="next-card-empty">予定を読み込み中…</p>
+                ) : nextDeadline ? (
+                  <>
+                    <p className="next-card-company">{nextDeadline.company}</p>
+                    <p className="next-card-task">{nextDeadline.task}</p>
+                    <div className="next-card-bottom">
+                      <span>
+                        {nextDeadline.due_date.replaceAll("-", "/")} ·{" "}
+                        {nextDeadline.due_time ?? "時刻未確認"}
+                      </span>
+                      <strong>{remainingLabel(nextDeadline)}</strong>
+                    </div>
+                  </>
+                ) : (
+                  <p className="next-card-empty">
+                    今後の締切はありません。案内メールから追加しましょう。
+                  </p>
+                )}
+              </div>
+            </section>
+            {!user && !checking && (
+              <div className="demo-flow" aria-label="デモの見かた">
+                <span>
+                  <strong>01</strong> 架空メールを試す
+                </span>
+                <span>
+                  <strong>02</strong> 候補を確認する
+                </span>
+                <span>
+                  <strong>03</strong> 締切を見返す
+                </span>
+              </div>
+            )}
             <Tabs value={filter} onValueChange={setFilter}>
               <div className="section-heading">
                 <TabsList aria-label="提出の状態" variant="line">
@@ -767,7 +825,10 @@ export default function DeadlineApp() {
       </Sheet>
       <footer className="app-footer">
         締切ノート <span>確認してから保存。あなたのペースで、一歩ずつ。</span>
-        <a href="/privacy.html">プライバシー</a>
+        <nav aria-label="フッター">
+          <a href="/about.html">この作品について</a>
+          <a href="/privacy.html">プライバシー</a>
+        </nav>
       </footer>
       <Toaster position="bottom-center" richColors />
     </>
@@ -800,6 +861,10 @@ function DeadlineForm({
         : { ...blank },
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [jevBusy, setJevBusy] = useState(false);
+  const [jevError, setJevError] = useState("");
+  const [jevSuggestion, setJevSuggestion] = useState<JevOption | null>(null);
+  const [jevChecked, setJevChecked] = useState(false);
   const [newId] = useState(() => crypto.randomUUID());
   const [manual, setManual] = useState(!!editing || !!stagedMail);
   const candidateResultsRef = useRef<HTMLDivElement>(null);
@@ -810,6 +875,7 @@ function DeadlineForm({
       candidates.dates.length ||
       candidates.links.length)
   );
+  const jevItems = candidates ? jevOptions(candidates) : [];
 
   function candidateInput(data: MailCandidates): DeadlineInput {
     const deadlines = data.dates.filter((item) => item.isDeadline);
@@ -832,6 +898,9 @@ function DeadlineForm({
     try {
       const data = extractMail(value);
       setCandidates(data);
+      setJevSuggestion(null);
+      setJevChecked(false);
+      setJevError("");
       setInput(candidateInput(data));
       setManual(true);
       setErrors({});
@@ -845,6 +914,46 @@ function DeadlineForm({
             ? failure.message
             : "本文を確認してください。",
       });
+    }
+  }
+  async function checkWithJev() {
+    const client = getSupabase();
+    const { data } = (await client?.auth.getSession()) ?? { data: null };
+    const token = data?.session?.access_token;
+    if (!token) {
+      setJevError("Jevを使うにはログインしてください。");
+      return;
+    }
+    setJevBusy(true);
+    setJevError("");
+    setJevChecked(false);
+    setJevSuggestion(null);
+    try {
+      const response = await fetch("/api/jev", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ options: jevItems }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        choice?: string;
+        confidence?: number;
+      };
+      if (!response.ok)
+        throw new Error(result.error || "Jevを利用できませんでした。");
+      setJevChecked(true);
+      setJevSuggestion(validJevChoice(result, jevItems));
+    } catch (failure) {
+      setJevError(
+        failure instanceof Error
+          ? failure.message
+          : "Jevを利用できませんでした。",
+      );
+    } finally {
+      setJevBusy(false);
     }
   }
   function change(key: keyof DeadlineInput, value: string) {
@@ -930,7 +1039,13 @@ function DeadlineForm({
             rows={6}
             maxLength={20000}
             value={mail}
-            onChange={(event) => setMail(event.target.value)}
+            onChange={(event) => {
+              setMail(event.target.value);
+              setCandidates(null);
+              setJevSuggestion(null);
+              setJevChecked(false);
+              setJevError("");
+            }}
             placeholder={
               cloud
                 ? "企業から届いた案内メールを、ここに貼り付けてください。"
@@ -941,7 +1056,9 @@ function DeadlineForm({
           />
           <p className="helper" id="mail-help">
             {cloud
-              ? "本文はこの端末で読み取り、保管・外部送信しません。確認した項目だけを保存します。"
+              ? jevEnabled
+                ? "通常の読み取りはこの端末で行い、本文を送信・保存しません。Jevは候補を確認してボタンを押した場合だけ使います。"
+                : "読み取りはこの端末で行い、本文を送信・保存しません。"
               : "本文はこの端末だけで読み取り、保存・送信しません。サンプルの変更は再読み込みで消えます。"}
           </p>
           {cloud && (
@@ -1014,6 +1131,69 @@ function DeadlineForm({
             .map((note) => (
               <p key={note}>{note}</p>
             ))}
+          {cloud && jevEnabled && jevItems.length > 0 && (
+            <div className="jev-panel">
+              <strong>Jevで締切候補を確認</strong>
+              <p>
+                Jevは候補の中から締切らしい日付を選びます。以下に表示する短い候補文だけをCloudflare上のJevへ送ります。本文全体は送りません。候補文に個人情報が残っていないか確認してください。
+              </p>
+              <details open>
+                <summary>送信する内容を見る</summary>
+                <ol>
+                  {jevItems.map((item) => (
+                    <li key={item.id}>
+                      {item.date} {item.time ?? "時刻不明"}：{item.excerpt}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+              {candidates.dates.length > 8 && (
+                <p>
+                  候補は先頭の8件だけ確認します。残りは元のメールで確認してください。
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={jevBusy}
+                onClick={checkWithJev}
+              >
+                {jevBusy ? "Jevで確認中…" : "表示した候補をJevで確認"}
+              </Button>
+              {jevError && (
+                <p className="error-text" role="alert">
+                  {jevError}
+                </p>
+              )}
+              {jevChecked && !jevSuggestion && (
+                <p role="status">
+                  Jevは締切を確信できませんでした。元のメールを見て日付を選んでください。
+                </p>
+              )}
+              {jevSuggestion && (
+                <div role="status">
+                  <p>
+                    Jevの候補：{jevSuggestion.date}{" "}
+                    {jevSuggestion.time ?? "時刻不明"}
+                    。元メールと照らして確認してください。
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setInput((current) => ({
+                        ...current,
+                        due_date: jevSuggestion.date,
+                        due_time: jevSuggestion.time,
+                      }));
+                    }}
+                  >
+                    この日付を入力欄へ反映
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
           {candidates.dates.length > 1 && (
             <>
               <p>
