@@ -1869,7 +1869,7 @@ function Settings({
     <section className="form-panel settings-panel">
       <h1 className="form-title">通知とアカウント</h1>
       <p className="helper">
-        締切の3日前と前日、午前9時（日本時間）に知らせる設計です。実際の到着は確認中です。
+        締切の3日前と前日、午前9時（日本時間）に知らせる設計です。テストメールの到着は確認済みです。迷惑メールに入る場合があります。プッシュ通知の到着は確認中です。
       </p>
       {error && (
         <div role="alert" className="error-box">
@@ -1979,6 +1979,21 @@ function Settings({
               {pushError && (
                 <p className="error-box" role="alert">
                   {pushError}
+                </p>
+              )}
+              {pushSupported() && Notification.permission === "denied" && (
+                <p className="helper">
+                  AndroidのChromeでこのサイトを開き、アドレスバー左のサイト情報
+                  → 権限 → 通知 →
+                  許可に変更してください。変更後は再読み込みします。{" "}
+                  <a
+                    className="text-link"
+                    href="https://support.google.com/chrome/answer/3220216?co=GENIE.Platform%3DAndroid&hl=ja"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Googleの設定手順
+                  </a>
                 </p>
               )}
             </>
