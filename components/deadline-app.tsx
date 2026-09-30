@@ -57,7 +57,12 @@ import {
 import { appError, getSupabase } from "@/lib/supabase";
 import { currentSubscription, pushSupported, subscribePush } from "@/lib/push";
 import { gmailList, gmailMessageText, type GmailPreview } from "@/lib/gmail";
-import { jevOptions, validJevChoice, type JevOption } from "@/lib/jev";
+import {
+  aiReviewOptions,
+  needsAiReview,
+  validAiReviewChoice,
+  type AiReviewOption,
+} from "@/lib/ai-review";
 import {
   loadGoogleIdentity,
   requestGmailAccess,
@@ -65,7 +70,7 @@ import {
 } from "@/lib/google-identity";
 
 type View = "list" | "add" | "settings" | "auth";
-const jevEnabled = import.meta.env.VITE_JEV_ENABLED === "true";
+const aiReviewEnabled = import.meta.env.VITE_AI_REVIEW_ENABLED === "true";
 const blank: DeadlineInput = {
   company: "",
   task: "",
@@ -861,10 +866,10 @@ function DeadlineForm({
         : { ...blank },
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [jevBusy, setJevBusy] = useState(false);
-  const [jevError, setJevError] = useState("");
-  const [jevSuggestion, setJevSuggestion] = useState<JevOption | null>(null);
-  const [jevChecked, setJevChecked] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState<AiReviewOption | null>(null);
+  const [aiChecked, setAiChecked] = useState(false);
   const [newId] = useState(() => crypto.randomUUID());
   const [manual, setManual] = useState(!!editing || !!stagedMail);
   const candidateResultsRef = useRef<HTMLDivElement>(null);
@@ -875,7 +880,7 @@ function DeadlineForm({
       candidates.dates.length ||
       candidates.links.length)
   );
-  const jevItems = candidates ? jevOptions(candidates) : [];
+  const aiItems = candidates ? aiReviewOptions(candidates) : [];
 
   function candidateInput(data: MailCandidates): DeadlineInput {
     const deadlines = data.dates.filter((item) => item.isDeadline);
@@ -898,9 +903,9 @@ function DeadlineForm({
     try {
       const data = extractMail(value);
       setCandidates(data);
-      setJevSuggestion(null);
-      setJevChecked(false);
-      setJevError("");
+      setAiSuggestion(null);
+      setAiChecked(false);
+      setAiError("");
       setInput(candidateInput(data));
       setManual(true);
       setErrors({});
@@ -916,44 +921,43 @@ function DeadlineForm({
       });
     }
   }
-  async function checkWithJev() {
+  async function checkWithAi() {
     const client = getSupabase();
     const { data } = (await client?.auth.getSession()) ?? { data: null };
     const token = data?.session?.access_token;
     if (!token) {
-      setJevError("Jevを使うにはログインしてください。");
+      setAiError("AIの確認を使うにはログインしてください。");
       return;
     }
-    setJevBusy(true);
-    setJevError("");
-    setJevChecked(false);
-    setJevSuggestion(null);
+    setAiBusy(true);
+    setAiError("");
+    setAiChecked(false);
+    setAiSuggestion(null);
     try {
-      const response = await fetch("/api/jev", {
+      const response = await fetch("/api/ai-review", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ options: jevItems }),
+        body: JSON.stringify({ options: aiItems }),
       });
       const result = (await response.json()) as {
         error?: string;
         choice?: string;
-        confidence?: number;
       };
       if (!response.ok)
-        throw new Error(result.error || "Jevを利用できませんでした。");
-      setJevChecked(true);
-      setJevSuggestion(validJevChoice(result, jevItems));
+        throw new Error(result.error || "AIを利用できませんでした。");
+      setAiChecked(true);
+      setAiSuggestion(validAiReviewChoice(result, aiItems));
     } catch (failure) {
-      setJevError(
+      setAiError(
         failure instanceof Error
           ? failure.message
-          : "Jevを利用できませんでした。",
+          : "AIを利用できませんでした。",
       );
     } finally {
-      setJevBusy(false);
+      setAiBusy(false);
     }
   }
   function change(key: keyof DeadlineInput, value: string) {
@@ -1042,9 +1046,9 @@ function DeadlineForm({
             onChange={(event) => {
               setMail(event.target.value);
               setCandidates(null);
-              setJevSuggestion(null);
-              setJevChecked(false);
-              setJevError("");
+              setAiSuggestion(null);
+              setAiChecked(false);
+              setAiError("");
             }}
             placeholder={
               cloud
@@ -1056,8 +1060,8 @@ function DeadlineForm({
           />
           <p className="helper" id="mail-help">
             {cloud
-              ? jevEnabled
-                ? "通常の読み取りはこの端末で行い、本文を送信・保存しません。Jevは候補を確認してボタンを押した場合だけ使います。"
+              ? aiReviewEnabled
+                ? "通常の読み取りはこの端末で行います。判断に迷う日付だけ、確認ボタンを押すと短い候補文をCloudflareのAIへ送ります。"
                 : "読み取りはこの端末で行い、本文を送信・保存しません。"
               : "本文はこの端末だけで読み取り、保存・送信しません。サンプルの変更は再読み込みで消えます。"}
           </p>
@@ -1131,75 +1135,88 @@ function DeadlineForm({
             .map((note) => (
               <p key={note}>{note}</p>
             ))}
-          {cloud && jevEnabled && jevItems.length > 0 && (
-            <div className="jev-panel">
-              <strong>Jevで締切候補を確認</strong>
-              <p>
-                Jevは候補の中から締切らしい日付を選びます。以下に表示する短い候補文だけをCloudflare上のJevへ送ります。本文全体は送りません。候補文に個人情報が残っていないか確認してください。
-              </p>
-              <details open>
-                <summary>送信する内容を見る</summary>
-                <ol>
-                  {jevItems.map((item) => (
-                    <li key={item.id}>
-                      {item.date} {item.time ?? "時刻不明"}：{item.excerpt}
-                    </li>
-                  ))}
-                </ol>
-              </details>
-              {candidates.dates.length > 8 && (
+          {cloud &&
+            aiReviewEnabled &&
+            aiItems.length > 0 &&
+            needsAiReview(candidates) && (
+              <div className="ai-review-panel">
+                <strong>AIに日付候補を確認してもらう</strong>
                 <p>
-                  候補は先頭の8件だけ確認します。残りは元のメールで確認してください。
+                  日付が複数ある、または年・締切かどうかが不明なときに使えます。下に表示した短い候補文だけをCloudflare
+                  Workers
+                  AIへ送ります。メール全文は送りません。個人情報が残っていないか確認してから押してください。
                 </p>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                disabled={jevBusy}
-                onClick={checkWithJev}
-              >
-                {jevBusy ? "Jevで確認中…" : "表示した候補をJevで確認"}
-              </Button>
-              {jevError && (
-                <p className="error-text" role="alert">
-                  {jevError}
-                </p>
-              )}
-              {jevChecked && !jevSuggestion && (
-                <p role="status">
-                  Jevは締切を確信できませんでした。元のメールを見て日付を選んでください。
-                </p>
-              )}
-              {jevSuggestion && (
-                <div role="status">
+                <details open>
+                  <summary>送信する内容を見る</summary>
+                  <ol>
+                    {aiItems.map((item) => (
+                      <li key={item.id}>
+                        {item.date ?? "年未確認"} {item.time ?? "時刻不明"}：
+                        {item.excerpt}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+                {candidates.dates.length > 8 && (
                   <p>
-                    Jevの候補：{jevSuggestion.date}{" "}
-                    {jevSuggestion.time ?? "時刻不明"}
-                    。元メールと照らして確認してください。
+                    候補は先頭の8件だけ確認します。残りは元のメールで確認してください。
                   </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setInput((current) => ({
-                        ...current,
-                        due_date: jevSuggestion.date,
-                        due_time: jevSuggestion.time,
-                      }));
-                    }}
-                  >
-                    この日付を入力欄へ反映
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={aiBusy}
+                  onClick={checkWithAi}
+                >
+                  {aiBusy ? "AIで確認中…" : "表示した候補をAIで確認"}
+                </Button>
+                {aiError && (
+                  <p className="error-text" role="alert">
+                    {aiError}
+                  </p>
+                )}
+                {aiChecked && !aiSuggestion && (
+                  <p role="status">
+                    AIは締切を判断できませんでした。元のメールを見て日付を選んでください。
+                  </p>
+                )}
+                {aiSuggestion && (
+                  <div role="status">
+                    <p>
+                      AIの見立て：
+                      {aiSuggestion.date ?? "年が書かれていない日付"}{" "}
+                      {aiSuggestion.time ?? "時刻不明"}。
+                      {aiSuggestion.date
+                        ? "元メールと照らして確認してください。"
+                        : "年は推測していません。元メールで確認し、入力してください。"}
+                    </p>
+                    {aiSuggestion.date && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setInput((current) => ({
+                            ...current,
+                            due_date: aiSuggestion.date ?? "",
+                            due_time: aiSuggestion.time,
+                          }));
+                        }}
+                      >
+                        この日付を入力欄へ反映
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           {candidates.dates.length > 1 && (
             <>
               <p>
-                {candidates.dates.filter((date) => date.isDeadline).length === 1
+                {candidates.dates.filter((date) => date.isDeadline).length ===
+                  1 &&
+                candidates.dates.some((date) => date.isDeadline && date.date)
                   ? "締切らしい日付を入力欄に入れました。違う場合は候補を選んでください。"
-                  : "どの締切を登録しますか？"}
+                  : "候補を確認し、締切の年月日を入力してください。"}
               </p>
               <div className="candidate-list">
                 {candidates.dates.map((date, i) => (
