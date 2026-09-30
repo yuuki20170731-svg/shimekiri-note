@@ -1433,7 +1433,7 @@ function GmailPicker({ onSelect }: { onSelect: (text: string) => void }) {
         接続時にGoogleで読み取りを許可します。検索結果の件名・差出人を表示し、選んだメールの本文だけを端末内で解析します。本文と接続情報は締切ノートに保存しません。
       </p>
       <p className="helper">
-        Gmail連携は現在テスト中です。Googleに登録したテスト利用者だけが接続できます。
+        Gmail連携はGoogleの審査前です。事前登録は不要ですが、接続時に未確認アプリの警告が表示され、利用人数は累計100人までです。
       </p>
       {!token ? (
         <Button
